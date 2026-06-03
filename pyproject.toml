@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prism-fire-risk"
+version = "0.1.0"
+description = "PRISM Stage-1 fire risk prediction research prototype."
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.0",
+    "numpy>=1.23",
+    "PyYAML>=6.0",
+    "tensorboard>=2.12",
+    "matplotlib>=3.7",
+]
+
+[tool.setuptools]
+packages = [
+    "prism",
+    "prism.datasets",
+    "prism.models",
+    "prism.trainers",
+    "prism.scripts",
+    "prism.utils",
+    "prism.planners",
+    "prism.envs",
+]
+
+[tool.setuptools.package-dir]
+prism = "."
