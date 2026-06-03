@@ -1,12 +1,15 @@
 # Python caches and local environments
 __pycache__/
+pycache/
 *.py[cod]
 *.pyo
 *.pyd
 .Python
+.env
 .venv/
 venv/
 env/
+conda-meta/
 
 # Test, lint and coverage artifacts
 .pytest_cache/
@@ -26,7 +29,12 @@ dist/
 # PRISM generated data, checkpoints, logs and figures
 outputs/
 prism/outputs/
+data/
+datasets/raw/
+datasets/processed/
 runs/
+wandb/
+*.log
 *.pt
 *.pth
 *.ckpt

@@ -5,18 +5,12 @@ from pathlib import Path
 from typing import Any
 
 import torch
-import torch.nn.functional as F
 from torch import nn
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-
-def select_device() -> torch.device:
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")
+from prism.utils.device import select_device
+from prism.utils.losses import gaussian_risk_loss
 
 
 class PRISMTrainer:
@@ -95,11 +89,7 @@ class PRISMTrainer:
         log_var: torch.Tensor,
         target: torch.Tensor,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        pred_loss = F.mse_loss(mu, target)
-        sq_error = (mu - target).pow(2)
-        unc_loss = (sq_error / torch.exp(log_var) + log_var).mean()
-        total_loss = pred_loss + self.uncertainty_weight * unc_loss
-        return total_loss, {"pred_loss": pred_loss.detach(), "unc_loss": unc_loss.detach()}
+        return gaussian_risk_loss(mu, log_var, target, uncertainty_weight=self.uncertainty_weight)
 
     def train(self) -> None:
         for epoch in range(self.start_epoch, self.epochs):
