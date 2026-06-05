@@ -45,6 +45,8 @@ This project intentionally does not include PPO, SAC, CPO, reinforcement-learnin
 
 Use Python 3.10+ and PyTorch 2.x.
 
+[Open PRISM in Colab](https://colab.research.google.com/github/KKKKKK-y/prism/blob/main/PRISM_Colab.ipynb)
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
