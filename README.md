@@ -47,6 +47,26 @@ Use Python 3.10+ and PyTorch 2.x.
 
 [Open PRISM in Colab](https://colab.research.google.com/github/KKKKKK-y/prism/blob/main/PRISM_Colab.ipynb)
 
+For a formal Colab T4 run, use:
+
+```text
+FORMAL_TRAIN_EPISODES = 300
+FORMAL_VAL_EPISODES = 60
+FORMAL_TEST_EPISODES = 60
+FORMAL_EPOCHS = 50
+FORMAL_EVAL_EPISODES = 100
+```
+
+If VRAM or time is tight, use:
+
+```text
+FORMAL_TRAIN_EPISODES = 150
+FORMAL_VAL_EPISODES = 30
+FORMAL_TEST_EPISODES = 30
+FORMAL_EPOCHS = 30
+FORMAL_EVAL_EPISODES = 50
+```
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -96,6 +116,20 @@ Train the Stage 4.3 ToyFireEnv predictor:
 python scripts/train.py --config configs/toy_train.yaml
 ```
 
+Resume interrupted training from the latest checkpoint:
+
+```bash
+python scripts/train.py \
+  --config configs/toy_train.yaml \
+  --resume outputs/checkpoints_toy/last.pt
+```
+
+Run the formal Stage 4.3 pipeline in debug mode:
+
+```bash
+python scripts/run_stage4_3_pipeline.py --config configs/toy_train.yaml --debug
+```
+
 The best validation checkpoint is saved to:
 
 ```text
@@ -106,6 +140,18 @@ Training logs are saved to:
 
 ```text
 outputs/results/stage4_toy_training_log.csv
+```
+
+The formal run summary is saved to:
+
+```text
+outputs/results/formal_run_summary.txt
+```
+
+Package checkpoints, results, visualizations and key config files:
+
+```bash
+python scripts/package_results.py --output outputs/prism_formal_results.zip
 ```
 
 Plot the training curve:

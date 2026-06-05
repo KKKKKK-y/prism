@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import torch
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_PARENT = PROJECT_ROOT.parent
+if str(PROJECT_PARENT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_PARENT))
 
 from prism.config import load_config
 from prism.datasets.dataset import build_dataloader
@@ -32,6 +39,8 @@ def main() -> None:
         config["batch_size"] = args.batch_size
     if args.lr is not None:
         config["lr"] = args.lr
+    if args.resume is not None:
+        config["resume"] = str(args.resume)
     if args.debug:
         config["epochs"] = 1
         config["batch_size"] = min(int(config.get("batch_size", 2)), 2)

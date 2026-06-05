@@ -66,6 +66,8 @@ class PRISMTrainer:
     def _initialize_training_log(self) -> None:
         if self.training_log_path is None or self.start_epoch > 0:
             return
+        if self.config.get("resume") and self.training_log_path.exists():
+            return
         self.training_log_path.parent.mkdir(parents=True, exist_ok=True)
         with self.training_log_path.open("w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(
