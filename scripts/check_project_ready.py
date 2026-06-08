@@ -52,6 +52,9 @@ def main() -> None:
         "scripts/generate_toy_dataset.py",
         "scripts/evaluate_prediction_on_toy.py",
         "scripts/evaluate_closed_loop.py",
+        "scripts/evaluate_baselines.py",
+        "scripts/plot_baseline_results.py",
+        "scripts/run_stage5_pipeline.py",
     ]
     writable_dirs = [
         "outputs",
@@ -70,7 +73,7 @@ def main() -> None:
     from prism.datasets import DummyFireRiskDataset, ToyFireRiskDataset
     from prism.envs import ToyFireEnv
     from prism.models import RiskPredictor
-    from prism.planners import sample_candidate_trajectories, select_safe_trajectory
+    from prism.planners import build_planner_risk, sample_candidate_trajectories, select_safe_trajectory
     from prism.utils import mc_dropout_predict
 
     imported = [
@@ -79,6 +82,7 @@ def main() -> None:
         ToyFireRiskDataset,
         ToyFireEnv,
         mc_dropout_predict,
+        build_planner_risk,
         sample_candidate_trajectories,
         select_safe_trajectory,
     ]

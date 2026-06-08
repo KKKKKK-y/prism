@@ -38,6 +38,7 @@ Implemented stages:
 - Stage 4.1: closed-loop stabilization
 - Stage 4.2: ToyFireEnv dataset generation
 - Stage 4.3: formal toy training and prediction evaluation pipeline
+- Stage 5: baseline and ablation evaluation
 
 This project intentionally does not include PPO, SAC, CPO, reinforcement-learning training, MPC, or real FDS integration.
 
@@ -200,6 +201,60 @@ Optional parameter sweep:
 python scripts/sweep_stage4_params.py --config configs/toy_train.yaml --checkpoint outputs/checkpoints_toy/best.pt --episodes 10
 ```
 
+## Stage 5: Baseline and Ablation Evaluation
+
+Stage 5 compares PRISM against planner-risk baselines under the same ToyFireEnv closed-loop evaluation loop:
+
+- `goal_greedy`: moves toward the goal with zero planner risk.
+- `current_risk`: repeats the current observed risk map over the planning horizon.
+- `mean_risk`: uses predicted mean risk only.
+- `prism_no_propagation`: uses MC Dropout uncertainty without temporal propagation.
+- `prism_full`: uses full PRISM uncertainty propagation.
+
+Evaluate all methods:
+
+```bash
+python scripts/evaluate_baselines.py \
+  --config configs/toy_train.yaml \
+  --checkpoint outputs/checkpoints_toy/best.pt \
+  --episodes 50 \
+  --methods goal_greedy current_risk mean_risk prism_no_propagation prism_full
+```
+
+Plot the Stage 5 comparison:
+
+```bash
+python scripts/plot_baseline_results.py \
+  --csv outputs/results/stage5_baseline_results.csv \
+  --output outputs/visualizations/stage5_baseline_comparison.png
+```
+
+Run the full Stage 5 pipeline and package results:
+
+```bash
+python scripts/run_stage5_pipeline.py \
+  --config configs/toy_train.yaml \
+  --checkpoint outputs/checkpoints_toy/best.pt \
+  --episodes 50
+```
+
+In Colab, first finish the formal run or otherwise make sure `outputs/checkpoints_toy/best.pt` exists. Then set:
+
+```text
+RUN_STAGE5_BASELINES = True
+```
+
+The Stage 5 notebook cell will run the pipeline, display `stage5_baseline_results.csv`, and download `outputs/prism_stage5_results.zip` when available.
+
+Stage 5 outputs:
+
+```text
+outputs/results/stage5_baseline_results.csv
+outputs/results/stage5_baseline_episode_results.csv
+outputs/visualizations/stage5_baseline_comparison.png
+outputs/prism_stage5_results.zip
+```
+
 ## Project Structure
 
 ```text
@@ -219,6 +274,7 @@ prism/
 │   └── model.py
 ├── planners/
 │   ├── __init__.py
+│   ├── baseline_planners.py
 │   ├── trajectory_sampler.py
 │   └── safe_risk_planner.py
 ├── trainers/
@@ -242,14 +298,17 @@ prism/
 │   ├── train.py
 │   ├── evaluate_prediction_on_toy.py
 │   ├── evaluate_closed_loop.py
+│   ├── evaluate_baselines.py
 │   ├── visualize_prediction.py
 │   ├── visualize_uncertainty.py
 │   ├── visualize_planner.py
 │   ├── visualize_toy_env.py
 │   ├── run_closed_loop.py
 │   ├── run_stage4_3_pipeline.py
+│   ├── run_stage5_pipeline.py
 │   ├── plot_training_curve.py
-│   └── plot_prediction_metrics.py
+│   ├── plot_prediction_metrics.py
+│   └── plot_baseline_results.py
 ├── outputs/
 ├── README.md
 ├── requirements.txt

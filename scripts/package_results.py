@@ -8,6 +8,10 @@ from pathlib import Path
 DEFAULT_ITEMS = [
     Path("outputs/checkpoints_toy/best.pt"),
     Path("outputs/checkpoints_toy/last.pt"),
+    Path("outputs/results/formal_run_summary.txt"),
+    Path("outputs/results/stage5_baseline_results.csv"),
+    Path("outputs/results/stage5_baseline_episode_results.csv"),
+    Path("outputs/visualizations/stage5_baseline_comparison.png"),
     Path("outputs/results"),
     Path("outputs/visualizations"),
     Path("configs/toy_train.yaml"),
