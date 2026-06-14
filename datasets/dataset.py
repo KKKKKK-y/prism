@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
 
 class SyntheticFireRiskDataset(Dataset):
@@ -190,6 +190,9 @@ class ToyFireRiskDataset(Dataset):
             "target": torch.from_numpy(self.target[idx]).float(),
         }
 
+    def high_risk_mask(self, threshold: float = 0.5) -> np.ndarray:
+        return self.target.reshape(self.target.shape[0], -1).max(axis=1) > float(threshold)
+
     def _validate_arrays(self, obs: np.ndarray, target: np.ndarray) -> None:
         if obs.ndim != 5:
             raise ValueError(f"{self.npz_path}: obs must be [N,k,C,H,W], got {obs.shape}")
@@ -243,13 +246,60 @@ def build_dataloader(
             seed=int(data_cfg.get("seed", 42)) + (0 if split == "train" else 10_000),
         )
 
+    sampler = None
+    if split == "train" and dataset_type == "toy_npz" and isinstance(dataset, ToyFireRiskDataset):
+        high_mask = dataset.high_risk_mask(float(config.get("high_risk_sample_threshold", 0.5)))
+        high_count = int(high_mask.sum())
+        total_count = int(high_mask.size)
+        high_ratio_observed = high_count / max(1, total_count)
+        print(
+            "High-risk sample statistics: "
+            f"split={split} total={total_count} high_risk={high_count} "
+            f"ratio={high_ratio_observed:.6f} "
+            f"oversampling_enabled={bool(config.get('use_high_risk_oversampling', False))}"
+        )
+    if (
+        split == "train"
+        and dataset_type == "toy_npz"
+        and bool(config.get("use_high_risk_oversampling", False))
+    ):
+        if not isinstance(dataset, ToyFireRiskDataset):
+            raise TypeError("High-risk oversampling requires ToyFireRiskDataset")
+        high_mask = dataset.high_risk_mask(float(config.get("high_risk_sample_threshold", 0.5)))
+        high_count = int(high_mask.sum())
+        low_count = int(high_mask.size - high_count)
+        min_fraction = float(config.get("high_risk_sample_min_fraction", 0.01))
+        if high_count > 0 and low_count > 0 and high_count / max(1, high_mask.size) >= min_fraction:
+            high_ratio = float(config.get("high_risk_sample_ratio", 0.5))
+            high_ratio = min(0.99, max(0.01, high_ratio))
+            weights = np.empty(high_mask.size, dtype=np.float64)
+            weights[high_mask] = high_ratio / high_count
+            weights[~high_mask] = (1.0 - high_ratio) / low_count
+            sampler = WeightedRandomSampler(
+                weights=torch.as_tensor(weights, dtype=torch.double),
+                num_samples=len(dataset),
+                replacement=True,
+            )
+            shuffle = False
+            print(
+                "Using high-risk oversampling: "
+                f"high_samples={high_count} low_samples={low_count} target_ratio={high_ratio:.2f}"
+            )
+        else:
+            print(
+                "Warning: high-risk oversampling requested but skipped because "
+                f"high_samples={high_count}, low_samples={low_count}, "
+                f"min_fraction={min_fraction:.6f}."
+            )
+
     if shuffle is None:
         shuffle = split == "train"
 
     return DataLoader(
         dataset,
         batch_size=int(config.get("batch_size", 8)),
-        shuffle=shuffle,
+        shuffle=shuffle if sampler is None else False,
+        sampler=sampler,
         num_workers=int(config.get("num_workers", 0)),
         pin_memory=bool(config.get("pin_memory", torch.cuda.is_available())),
         drop_last=bool(config.get("drop_last", False)),

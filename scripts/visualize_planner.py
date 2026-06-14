@@ -134,6 +134,7 @@ def main() -> None:
     delta = float(config.get("risk_threshold_delta", 0.8))
     goal_weight = float(config.get("goal_weight", 0.1))
     noise_scale = float(config.get("trajectory_noise_scale", 4.0))
+    max_step_size = float(config.get("env", {}).get("max_step_size", 2.0))
 
     device = resolve_device(args.device)
     # safe_risk_map: [H, 1, 64, 64]
@@ -149,6 +150,7 @@ def main() -> None:
         horizon=horizon,
         map_size=image_size,
         noise_scale=noise_scale,
+        max_step_size=max_step_size,
     )
     best_traj, _, trajectory_risks, feasible_mask, info = select_safe_trajectory(
         safe_risk_map=safe_risk_map,

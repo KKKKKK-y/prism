@@ -19,12 +19,16 @@ def sample_candidate_trajectories(
     horizon: int = 5,
     map_size: int = 64,
     noise_scale: float = 4.0,
+    max_step_size: float | None = None,
 ) -> torch.Tensor:
     """
     Sample noisy candidate trajectories.
 
     Trajectory coordinates are always [x, y].
     Image/map indexing later uses [y, x], where y is row and x is column.
+
+    When max_step_size is provided, every adjacent waypoint is clipped to that
+    motion budget so the sampled rollout matches ToyFireEnv.step dynamics.
 
     Returns:
         trajectories: [num_trajectories, horizon, 2]
@@ -43,6 +47,34 @@ def sample_candidate_trajectories(
 
     start = start.clamp(0.0, float(map_size - 1))
     goal = goal.clamp(0.0, float(map_size - 1))
+
+    if max_step_size is not None:
+        if max_step_size <= 0.0:
+            raise ValueError(f"max_step_size must be positive when provided, got {max_step_size}")
+        trajectories = torch.empty(num_trajectories, horizon, 2, device=start.device, dtype=start.dtype)
+        noise_weights = torch.sin(torch.linspace(1.0 / horizon, 1.0, horizon, device=start.device, dtype=start.dtype) * math.pi)
+        noise_weights[-1] = 0.15
+        for traj_idx in range(num_trajectories):
+            current = start.clone()
+            for step_idx in range(horizon):
+                to_goal = goal - current
+                distance_to_goal = torch.linalg.norm(to_goal).clamp_min(1e-8)
+                base_next = current + to_goal / distance_to_goal * torch.minimum(
+                    distance_to_goal,
+                    torch.as_tensor(max_step_size, dtype=start.dtype, device=start.device),
+                )
+                if traj_idx == 0:
+                    target = base_next
+                else:
+                    target = base_next + torch.randn(2, device=start.device, dtype=start.dtype) * noise_scale * noise_weights[step_idx]
+                target = target.clamp(0.0, float(map_size - 1))
+                delta = target - current
+                delta_norm = torch.linalg.norm(delta)
+                if delta_norm > max_step_size:
+                    target = current + delta / delta_norm * max_step_size
+                current = target.clamp(0.0, float(map_size - 1))
+                trajectories[traj_idx, step_idx] = current
+        return trajectories
 
     steps = torch.linspace(1.0 / horizon, 1.0, horizon, device=start.device, dtype=start.dtype)
     base_path = start.view(1, 2) + steps.view(horizon, 1) * (goal - start).view(1, 2)

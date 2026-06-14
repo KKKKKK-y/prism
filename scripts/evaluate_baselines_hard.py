@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import sys
 from pathlib import Path
 from typing import Any
 
 import torch
+import yaml
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -15,61 +17,67 @@ if str(PROJECT_PARENT) not in sys.path:
     sys.path.insert(0, str(PROJECT_PARENT))
 
 from prism.config import load_config
+from prism.envs import HardToyFireEnv
 from prism.planners import STAGE5_METHODS, build_planner_risk, sample_candidate_trajectories, select_safe_trajectory
-from prism.scripts.run_closed_loop import build_env, build_model, compute_path_length, load_checkpoint_if_available, resolve_device
+from prism.scripts.evaluate_baselines import (
+    EPISODE_FIELDS,
+    MODEL_METHODS,
+    SUMMARY_FIELDS,
+    build_loaded_model,
+    format_summary,
+    needs_model,
+    set_deterministic_seed,
+    summarize_rows,
+)
+from prism.scripts.run_closed_loop import compute_path_length, resolve_device
 
 
-MODEL_METHODS = {"mean_risk", "prism_no_propagation", "prism_full"}
-SUMMARY_FIELDS = [
-    "method",
-    "episodes",
-    "success_rate",
-    "collision_rate",
-    "timeout_rate",
-    "avg_cumulative_risk",
-    "avg_path_length",
-    "avg_steps",
-    "reached_goal",
-    "collision_high_risk",
-    "collision_obstacle",
-    "timeout",
-]
-EPISODE_FIELDS = [
-    "method",
-    "episode",
-    "seed",
-    "success",
-    "collision",
-    "timeout",
-    "failure_reason",
-    "cumulative_risk",
-    "path_length",
-    "steps",
-]
+ENV_KEYS = {
+    "map_size",
+    "max_steps",
+    "obstacle_density",
+    "fire_spread_rate",
+    "smoke_spread_rate",
+    "risk_threshold_collision",
+}
+PLANNER_KEYS = {
+    "risk_threshold_delta",
+    "goal_weight",
+    "progress_weight",
+    "backtrack_penalty",
+    "num_trajectories",
+    "trajectory_noise_scale",
+}
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate PRISM Stage-5 baseline and ablation methods.")
-    parser.add_argument("--config", type=Path, default=Path("configs/toy_train.yaml"), help="Path to YAML config.")
+    parser = argparse.ArgumentParser(description="Evaluate Stage-5 methods on hard ToyFire scenarios.")
+    parser.add_argument("--config", type=Path, default=Path("configs/toy_train.yaml"), help="Base model config.")
+    parser.add_argument(
+        "--hard-config",
+        type=Path,
+        default=Path("configs/toy_eval_hard.yaml"),
+        help="Hard evaluation config.",
+    )
     parser.add_argument(
         "--checkpoint",
         type=Path,
         default=Path("outputs/checkpoints_toy/best.pt"),
         help="Path to trained PRISM checkpoint.",
     )
-    parser.add_argument("--episodes", type=int, default=50, help="Number of episodes per method.")
+    parser.add_argument("--episodes", type=int, default=100, help="Number of hard episodes per method.")
     parser.add_argument("--methods", nargs="+", default=STAGE5_METHODS, help="Methods to evaluate.")
     parser.add_argument(
         "--summary-output",
         type=Path,
-        default=Path("outputs/results/stage5_baseline_results.csv"),
-        help="Summary CSV output path.",
+        default=Path("outputs/results/stage5_hard_baseline_results.csv"),
+        help="Hard benchmark summary CSV.",
     )
     parser.add_argument(
         "--episode-output",
         type=Path,
-        default=Path("outputs/results/stage5_baseline_episode_results.csv"),
-        help="Per-episode CSV output path.",
+        default=Path("outputs/results/stage5_hard_baseline_episode_results.csv"),
+        help="Hard benchmark per-episode CSV.",
     )
     parser.add_argument(
         "--device",
@@ -81,72 +89,66 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def set_deterministic_seed(seed: int) -> None:
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+def load_hard_config(path: Path) -> dict[str, Any]:
+    with path.expanduser().open("r", encoding="utf-8") as f:
+        raw = yaml.safe_load(f) or {}
+    hard = raw.get("hard_eval", raw)
+    if not isinstance(hard, dict):
+        raise ValueError(f"Hard config must contain a mapping, got {type(hard).__name__}")
+    return hard
 
 
-def needs_model(methods: list[str]) -> bool:
-    return any(method in MODEL_METHODS for method in methods)
+def apply_hard_eval_config(config: dict[str, Any], hard: dict[str, Any]) -> dict[str, Any]:
+    merged = copy.deepcopy(config)
+    env_cfg = dict(merged.get("env", {}))
+    for key in ENV_KEYS:
+        if key in hard:
+            env_cfg[key] = hard[key]
+    merged["env"] = env_cfg
+    for key in PLANNER_KEYS:
+        if key in hard:
+            merged[key] = hard[key]
+    return merged
 
 
-def build_loaded_model(config: dict[str, Any], checkpoint: Path, device: torch.device) -> torch.nn.Module:
-    checkpoint = checkpoint.expanduser()
-    if not checkpoint.exists():
-        raise FileNotFoundError(f"Stage-5 model methods require checkpoint, but it was not found: {checkpoint}")
-    model = build_model(config).to(device)
-    load_checkpoint_if_available(model, checkpoint, device)
-    model.eval()
-    return model
+def build_hard_env(config: dict[str, Any], hard: dict[str, Any], seed: int | None) -> HardToyFireEnv:
+    env_cfg = config.get("env", {})
+    return HardToyFireEnv(
+        map_size=int(env_cfg.get("map_size", config.get("image_size", 64))),
+        obs_window=int(config.get("obs_window", 4)),
+        channels=int(config.get("channels", 5)),
+        max_steps=int(env_cfg.get("max_steps", 90)),
+        num_fire_sources=int(hard.get("fire_source_count_max", env_cfg.get("num_fire_sources", 5))),
+        obstacle_density=float(env_cfg.get("obstacle_density", 0.12)),
+        fire_spread_rate=float(env_cfg.get("fire_spread_rate", 0.08)),
+        smoke_spread_rate=float(env_cfg.get("smoke_spread_rate", 0.14)),
+        risk_threshold_collision=float(env_cfg.get("risk_threshold_collision", 0.70)),
+        goal_radius=float(env_cfg.get("goal_radius", 3.0)),
+        max_step_size=float(env_cfg.get("max_step_size", 2.0)),
+        seed=seed,
+        hard_eval=hard,
+    )
 
 
-def summarize_rows(method: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
-    episodes = len(rows)
-    if episodes == 0:
-        raise ValueError(f"No episode rows for method {method}")
-    counts = {
-        "reached_goal": 0,
-        "collision_high_risk": 0,
-        "collision_obstacle": 0,
-        "timeout": 0,
-    }
-    for row in rows:
-        reason = str(row["failure_reason"])
-        if reason in counts:
-            counts[reason] += 1
-
-    return {
-        "method": method,
-        "episodes": episodes,
-        "success_rate": sum(int(row["success"]) for row in rows) / episodes,
-        "collision_rate": sum(int(row["collision"]) for row in rows) / episodes,
-        "timeout_rate": sum(int(row["timeout"]) for row in rows) / episodes,
-        "avg_cumulative_risk": sum(float(row["cumulative_risk"]) for row in rows) / episodes,
-        "avg_path_length": sum(float(row["path_length"]) for row in rows) / episodes,
-        "avg_steps": sum(float(row["steps"]) for row in rows) / episodes,
-        **counts,
-    }
-
-
-def run_baseline_episode(
+def run_hard_episode(
     *,
     method: str,
     config: dict[str, Any],
+    hard: dict[str, Any],
     device: torch.device,
     seed: int,
     model: torch.nn.Module | None,
     verbose: bool = False,
 ) -> dict[str, Any]:
-    env = build_env(config, seed=seed)
+    env = build_hard_env(config, hard, seed=seed)
     observation = env.reset(seed=seed)
 
     horizon = int(config.get("horizon", 5))
     map_size = int(config.get("env", {}).get("map_size", config.get("image_size", 64)))
     num_trajectories = int(config.get("num_trajectories", 64))
-    delta = float(config.get("risk_threshold_delta", 0.8))
-    goal_weight = float(config.get("goal_weight", 0.1))
-    noise_scale = float(config.get("trajectory_noise_scale", 4.0))
+    delta = float(config.get("risk_threshold_delta", 0.9))
+    goal_weight = float(config.get("goal_weight", 0.3))
+    noise_scale = float(config.get("trajectory_noise_scale", 5.0))
     progress_weight = float(config.get("progress_weight", 0.2))
     backtrack_penalty = float(config.get("backtrack_penalty", 1.0))
     max_step_size = float(config.get("env", {}).get("max_step_size", 2.0))
@@ -212,18 +214,6 @@ def run_baseline_episode(
     }
 
 
-def format_summary(row: dict[str, Any]) -> str:
-    return (
-        f"{row['method']}: "
-        f"success_rate={float(row['success_rate']):.6f} "
-        f"collision_rate={float(row['collision_rate']):.6f} "
-        f"timeout_rate={float(row['timeout_rate']):.6f} "
-        f"avg_cumulative_risk={float(row['avg_cumulative_risk']):.6f} "
-        f"avg_path_length={float(row['avg_path_length']):.6f} "
-        f"avg_steps={float(row['avg_steps']):.6f}"
-    )
-
-
 def main() -> None:
     args = parse_args()
     if args.episodes <= 0:
@@ -233,7 +223,9 @@ def main() -> None:
     if invalid:
         raise ValueError(f"Unknown methods {invalid}. Valid methods: {STAGE5_METHODS}")
 
-    config = load_config(args.config)
+    base_config = load_config(args.config)
+    hard = load_hard_config(args.hard_config)
+    config = apply_hard_eval_config(base_config, hard)
     base_seed = int(config.get("data", {}).get("seed", config.get("seed", 42)))
     seeds = [base_seed + idx for idx in range(args.episodes)]
     device = resolve_device(args.device)
@@ -242,14 +234,16 @@ def main() -> None:
     all_episode_rows: list[dict[str, Any]] = []
     summary_rows: list[dict[str, Any]] = []
 
-    print("Stage-5 methods:", " ".join(methods))
+    print("Stage-5 hard methods:", " ".join(methods))
+    print("Hard config:", args.hard_config)
     print("Seed list:", seeds)
     for method in methods:
         method_rows: list[dict[str, Any]] = []
         for episode_idx, seed in enumerate(seeds):
-            metrics = run_baseline_episode(
+            metrics = run_hard_episode(
                 method=method,
                 config=config,
+                hard=hard,
                 device=device,
                 seed=seed,
                 model=model if method in MODEL_METHODS else None,
@@ -289,11 +283,11 @@ def main() -> None:
         writer.writeheader()
         writer.writerows(all_episode_rows)
 
-    print("Stage-5 baseline summary:")
+    print("Stage-5 hard baseline summary:")
     for row in summary_rows:
         print(format_summary(row))
-    print(f"Saved baseline summary to: {summary_output}")
-    print(f"Saved baseline episode results to: {episode_output}")
+    print(f"Saved hard baseline summary to: {summary_output}")
+    print(f"Saved hard baseline episode results to: {episode_output}")
 
 
 if __name__ == "__main__":

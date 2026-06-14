@@ -149,6 +149,7 @@ def run_episode(
     noise_scale = float(config.get("trajectory_noise_scale", 4.0))
     progress_weight = float(config.get("progress_weight", 0.2))
     backtrack_penalty = float(config.get("backtrack_penalty", 1.0))
+    max_step_size = float(config.get("env", {}).get("max_step_size", 2.0))
 
     path = [observation["robot_xy"].clone()]
     cumulative_risk = 0.0
@@ -172,6 +173,7 @@ def run_episode(
             horizon=horizon,
             map_size=map_size,
             noise_scale=noise_scale,
+            max_step_size=max_step_size,
         )
         best_traj, _, _, _, planner_info = select_safe_trajectory(
             safe_risk_map=safe_risk_map,

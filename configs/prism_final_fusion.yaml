@@ -1,0 +1,14 @@
+planner:
+  final_method: alpha_fusion
+  alpha: 0.4
+  lambda_u: 0.5
+  uncertainty_alpha: 0.7
+  num_mc_samples: 5
+
+model:
+  config: configs/toy_train_hard_level_b.yaml
+  checkpoint: outputs/checkpoints_toy_hard_b/best.pt
+
+eval:
+  hard_config: configs/toy_eval_hard.yaml
+  episodes: 100

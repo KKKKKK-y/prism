@@ -1,0 +1,70 @@
+seed: 42
+dataset_type: toy_npz
+train_npz: outputs/datasets_reviewer_demo/toy_fire_train.npz
+val_npz: outputs/datasets_reviewer_demo/toy_fire_val.npz
+test_npz: outputs/datasets_reviewer_demo/toy_fire_test.npz
+
+obs_window: 4
+horizon: 5
+in_channels: 5
+image_size: 64
+train_episodes: 10
+val_episodes: 2
+test_episodes: 2
+epochs: 3
+batch_size: 8
+learning_rate: 1e-4
+lambda_u: 0.5
+uncertainty_alpha: 0.7
+num_mc_samples: 3
+alpha_unc: 0.1
+dropout_p: 0.1
+base_channels: 16
+latent_channels: 64
+gru_layers: 1
+num_workers: 0
+amp: true
+grad_clip_norm: 1.0
+log_interval: 5
+max_train_samples: 160
+max_val_samples: 64
+max_test_samples: 64
+checkpoint_dir: outputs/checkpoints_reviewer_demo
+log_dir: outputs/runs_reviewer_demo
+visualization_dir: outputs/visualizations
+results_dir: outputs/results
+output_dir: outputs
+training_log_csv: outputs/results/reviewer_demo_training_log.csv
+closed_loop_episodes: 5
+fusion_episodes: 5
+eval_episodes: 5
+
+planner:
+  alpha: 0.4
+  fusion_mode: alpha_fusion
+  num_trajectories: 32
+  risk_threshold_delta: 1.0
+  goal_weight: 0.3
+
+num_trajectories: 32
+risk_threshold_delta: 1.0
+goal_weight: 0.3
+progress_weight: 0.2
+backtrack_penalty: 1.0
+trajectory_noise_scale: 4.0
+
+data:
+  seed: 42
+  train_samples: 10
+  val_samples: 2
+
+env:
+  map_size: 64
+  max_steps: 100
+  num_fire_sources: 2
+  obstacle_density: 0.05
+  fire_spread_rate: 0.04
+  smoke_spread_rate: 0.08
+  risk_threshold_collision: 0.95
+  goal_radius: 3.0
+  max_step_size: 2.0

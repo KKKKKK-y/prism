@@ -1,0 +1,33 @@
+hard_eval:
+  map_size: 64
+  episodes: 100
+  max_steps: 90
+
+  fire_source_count_min: 2
+  fire_source_count_max: 4
+
+  fire_spread_rate: 0.07
+  smoke_spread_rate: 0.12
+
+  obstacle_density: 0.08
+  narrow_passage: true
+  dynamic_blocking: true
+  dynamic_smoke_gain: 0.01
+  corridor_radius: 2.5
+  chokepoint_bands: false
+
+  start_goal_min_distance: 45
+
+  risk_threshold_collision: 0.76
+  risk_threshold_delta: 1.40
+
+  goal_weight: 0.30
+  progress_weight: 0.20
+  backtrack_penalty: 1.00
+
+  num_trajectories: 64
+  trajectory_noise_scale: 5.0
+
+  place_fire_near_shortest_path: true
+  path_fire_offset_min: 4
+  path_fire_offset_max: 8

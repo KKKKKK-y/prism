@@ -1,0 +1,59 @@
+seed: 42
+dataset_type: toy_npz
+train_npz: outputs/datasets_hard/toy_fire_train_hard.npz
+val_npz: outputs/datasets_hard/toy_fire_val_hard.npz
+test_npz: outputs/datasets_hard/toy_fire_test_hard.npz
+
+obs_window: 4
+horizon: 5
+in_channels: 5
+image_size: 64
+batch_size: 32
+epochs: 30
+learning_rate: 1e-4
+alpha_unc: 0.1
+lambda_u: 0.5
+dropout_p: 0.1
+num_mc_samples: 5
+uncertainty_alpha: 0.7
+
+use_weighted_loss: true
+use_weighted_uncertainty_loss: true
+high_risk_threshold: 0.5
+high_risk_weight: 10.0
+hard_extra_weight: 10.0
+max_loss_weight: 100.0
+weighting_mode: threshold
+
+use_high_risk_oversampling: false
+high_risk_sample_threshold: 0.5
+high_risk_sample_min_fraction: 0.01
+high_risk_sample_ratio: 0.5
+
+base_channels: 16
+latent_channels: 64
+gru_layers: 1
+num_workers: 0
+checkpoint_dir: outputs/checkpoints_sweep/toy_train_hard_weighted_w10
+log_dir: outputs/runs_sweep/toy_train_hard_weighted_w10
+visualization_dir: outputs/visualizations
+output_dir: outputs
+training_log_csv: outputs/results/sweep/toy_train_hard_weighted_w10_training_log.csv
+
+num_trajectories: 64
+risk_threshold_delta: 1.4
+goal_weight: 0.3
+progress_weight: 0.2
+backtrack_penalty: 1.0
+trajectory_noise_scale: 5.0
+
+env:
+  map_size: 64
+  max_steps: 90
+  num_fire_sources: 4
+  obstacle_density: 0.08
+  fire_spread_rate: 0.07
+  smoke_spread_rate: 0.12
+  risk_threshold_collision: 0.76
+  goal_radius: 3.0
+  max_step_size: 2.0

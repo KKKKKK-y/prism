@@ -1,13 +1,25 @@
 from __future__ import annotations
 
 import csv
+import time
 from pathlib import Path
 from typing import Any
 
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except ModuleNotFoundError:  # pragma: no cover - optional local dependency
+    class SummaryWriter:  # type: ignore[no-redef]
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            print("Warning: tensorboard is not installed. TensorBoard logging is disabled.")
+
+        def add_scalar(self, *args: object, **kwargs: object) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
 
 from prism.utils.device import select_device
 from prism.utils.losses import gaussian_risk_loss
@@ -41,6 +53,13 @@ class PRISMTrainer:
         self.epochs = int(config.get("epochs", 100))
         self.grad_clip_norm = float(config.get("grad_clip_norm", 1.0))
         self.uncertainty_weight = float(config.get("uncertainty_weight", config.get("alpha_unc", 0.1)))
+        self.use_weighted_loss = bool(config.get("use_weighted_loss", False))
+        self.use_weighted_uncertainty_loss = bool(config.get("use_weighted_uncertainty_loss", False))
+        self.high_risk_threshold = float(config.get("high_risk_threshold", 0.5))
+        self.high_risk_weight = float(config.get("high_risk_weight", 5.0))
+        self.weighting_mode = str(config.get("weighting_mode", "threshold"))
+        self.hard_extra_weight = float(config.get("hard_extra_weight", 10.0))
+        self.max_loss_weight = float(config.get("max_loss_weight", 100.0))
         self.use_amp = bool(config.get("amp", True)) and self.device.type == "cuda"
         self.scaler = self._build_grad_scaler()
         self.writer = SummaryWriter(log_dir=str(self.log_dir))
@@ -91,9 +110,22 @@ class PRISMTrainer:
         log_var: torch.Tensor,
         target: torch.Tensor,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        return gaussian_risk_loss(mu, log_var, target, uncertainty_weight=self.uncertainty_weight)
+        return gaussian_risk_loss(
+            mu,
+            log_var,
+            target,
+            uncertainty_weight=self.uncertainty_weight,
+            use_weighted_loss=self.use_weighted_loss,
+            use_weighted_uncertainty_loss=self.use_weighted_uncertainty_loss,
+            high_risk_threshold=self.high_risk_threshold,
+            high_risk_weight=self.high_risk_weight,
+            weighting_mode=self.weighting_mode,
+            hard_extra_weight=self.hard_extra_weight,
+            max_loss_weight=self.max_loss_weight,
+        )
 
     def train(self) -> None:
+        run_started_at = time.time()
         for epoch in range(self.start_epoch, self.epochs):
             train_metrics = self.train_one_epoch(epoch)
             self.log_epoch("train", train_metrics, epoch)
@@ -109,6 +141,18 @@ class PRISMTrainer:
                 self.best_val_loss = monitored_loss
             self.save_checkpoint(epoch=epoch, is_best=is_best)
             self.log_training_csv(epoch, train_metrics, val_metrics)
+            elapsed = time.time() - run_started_at
+            completed_epochs = epoch + 1 - self.start_epoch
+            total_epochs = max(1, self.epochs - self.start_epoch)
+            eta = elapsed / max(1, completed_epochs) * max(0, total_epochs - completed_epochs)
+            val_loss = float("nan") if val_metrics is None else val_metrics["loss"]
+            print(
+                f"phase=epoch_summary epoch={epoch + 1}/{self.epochs} "
+                f"train_loss={train_metrics['loss']:.6f} val_loss={val_loss:.6f} "
+                f"lr={self.optimizer.param_groups[0]['lr']:.6g} "
+                f"elapsed={elapsed:.1f}s eta={eta:.1f}s",
+                flush=True,
+            )
 
         self.writer.close()
 
@@ -138,6 +182,7 @@ class PRISMTrainer:
     def train_one_epoch(self, epoch: int) -> dict[str, float]:
         self.model.train()
         totals = {"loss": 0.0, "pred_loss": 0.0, "unc_loss": 0.0}
+        epoch_started_at = time.time()
 
         for batch_idx, batch in enumerate(self.train_loader):
             obs = batch["obs"].to(self.device, non_blocking=True)
@@ -165,10 +210,17 @@ class PRISMTrainer:
 
             self.global_step += 1
             if batch_idx % int(self.config.get("log_interval", 10)) == 0:
+                elapsed = time.time() - epoch_started_at
+                completed = batch_idx + 1
+                eta = elapsed / max(1, completed) * max(0, len(self.train_loader) - completed)
                 print(
-                    f"epoch={epoch + 1}/{self.epochs} "
+                    f"phase=train epoch={epoch + 1}/{self.epochs} "
                     f"step={batch_idx + 1}/{len(self.train_loader)} "
-                    f"loss={batch_metrics['loss']:.6f}"
+                    f"train_loss={batch_metrics['loss']:.6f} "
+                    f"val_loss=nan "
+                    f"lr={self.optimizer.param_groups[0]['lr']:.6g} "
+                    f"elapsed={elapsed:.1f}s eta={eta:.1f}s",
+                    flush=True,
                 )
 
         return {key: value / max(1, len(self.train_loader)) for key, value in totals.items()}
@@ -177,6 +229,7 @@ class PRISMTrainer:
     def validate(self, epoch: int) -> dict[str, float]:
         self.model.eval()
         totals = {"loss": 0.0, "pred_loss": 0.0, "unc_loss": 0.0}
+        val_started_at = time.time()
 
         for batch in self.val_loader:
             obs = batch["obs"].to(self.device, non_blocking=True)
@@ -191,7 +244,14 @@ class PRISMTrainer:
             totals["unc_loss"] += loss_parts["unc_loss"].item()
 
         metrics = {key: value / max(1, len(self.val_loader)) for key, value in totals.items()}
-        print(f"epoch={epoch + 1}/{self.epochs} val_loss={metrics['loss']:.6f}")
+        elapsed = time.time() - val_started_at
+        print(
+            f"phase=validation epoch={epoch + 1}/{self.epochs} "
+            f"train_loss=nan val_loss={metrics['loss']:.6f} "
+            f"lr={self.optimizer.param_groups[0]['lr']:.6g} "
+            f"elapsed={elapsed:.1f}s eta=0.0s",
+            flush=True,
+        )
         return metrics
 
     def log_epoch(self, split: str, metrics: dict[str, float], epoch: int) -> None:

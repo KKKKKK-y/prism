@@ -8,13 +8,18 @@ from pathlib import Path
 DEFAULT_ITEMS = [
     Path("outputs/checkpoints_toy/best.pt"),
     Path("outputs/checkpoints_toy/last.pt"),
+    Path("outputs/checkpoints_toy_hard_b/best.pt"),
+    Path("outputs/checkpoints_toy_hard_b/last.pt"),
     Path("outputs/results/formal_run_summary.txt"),
+    Path("outputs/results/formal_hard_level_b_summary.txt"),
     Path("outputs/results/stage5_baseline_results.csv"),
     Path("outputs/results/stage5_baseline_episode_results.csv"),
     Path("outputs/visualizations/stage5_baseline_comparison.png"),
     Path("outputs/results"),
     Path("outputs/visualizations"),
     Path("configs/toy_train.yaml"),
+    Path("configs/toy_eval_hard.yaml"),
+    Path("configs/toy_train_hard_level_b.yaml"),
     Path("README.md"),
 ]
 
@@ -26,6 +31,18 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("outputs/prism_formal_results.zip"),
         help="Output zip path.",
+    )
+    parser.add_argument(
+        "--items",
+        nargs="*",
+        type=Path,
+        default=None,
+        help="Optional explicit files/directories to package instead of the default formal result set.",
+    )
+    parser.add_argument(
+        "--exclude-protected",
+        action="store_true",
+        help="Skip protected model, dataset, and archive files when packaging explicit items.",
     )
     return parser.parse_args()
 
@@ -46,7 +63,9 @@ def main() -> None:
 
     added: set[Path] = set()
     with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for item in DEFAULT_ITEMS:
+        items = args.items if args.items is not None else DEFAULT_ITEMS
+        protected_suffixes = {".pt", ".pth", ".ckpt", ".npz", ".npy", ".zip"}
+        for item in items:
             source = item if item.is_absolute() else project_root / item
             files = iter_files(source)
             if not files:
@@ -58,6 +77,9 @@ def main() -> None:
                 except ValueError:
                     arcname = file_path.name
                 if arcname in added:
+                    continue
+                if args.exclude_protected and file_path.suffix.lower() in protected_suffixes:
+                    print(f"Warning: skipping protected result item: {arcname}")
                     continue
                 zf.write(file_path, arcname)
                 added.add(arcname)

@@ -1,6 +1,7 @@
 # Python caches and local environments
 __pycache__/
 pycache/
+*.pyc
 *.py[cod]
 *.pyo
 *.pyd
@@ -15,6 +16,7 @@ conda-meta/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.ipynb_checkpoints/
 .coverage
 htmlcov/
 

@@ -1,326 +1,131 @@
-# PRISM
+# PRISM: Predictive Risk-Informed Safe Motion Planning for Dynamic Fire Environments
 
-Predictive Risk Intelligence and Safety Management.
+PRISM is a PyTorch research prototype for risk-aware robot motion planning in dynamic toy fire environments. The final planner, PRISM-Fusion, combines a current-risk prior with uncertainty-aware predictive safe-risk refinement.
 
-PRISM is a PyTorch research prototype for future fire-risk prediction and safe closed-loop navigation in a toy fire environment. The current codebase covers supervised risk forecasting, uncertainty propagation, trajectory-level safe-risk constraints, ToyFireEnv dataset generation, and closed-loop evaluation.
-
-## Project Overview
-
-The model consumes the past `obs_window=4` observations:
+The final planner risk is:
 
 ```text
-obs: [B, 4, C, 64, 64]
+M_safe = mu + lambda_u * sigma
+M_final = alpha * M_current + (1 - alpha) * M_safe
 ```
 
-and predicts the next `horizon=5` risk maps:
+The default final setting is `alpha = 0.4`, `lambda_u = 0.5`, `uncertainty_alpha = 0.7`, and `num_mc_samples = 5`. In words, the planner uses 40% current-risk prior and 60% predictive safe-risk refinement.
+
+This project intentionally does not include PPO, SAC, CPO, reinforcement-learning training, MPC, or FDS integration.
+
+## Repository Structure
 
 ```text
-mu:      [B, 5, 1, 64, 64]
-log_var: [B, 5, 1, 64, 64]
+configs/      Experiment, demo, and reproduction configs
+datasets/     Dataset loaders
+envs/         Toy fire environments
+models/       PRISM risk predictor
+planners/     Trajectory sampling, safe-risk scoring, and fusion logic
+scripts/      Dataset generation, training, evaluation, plotting, and packaging
+trainers/     Training loop
+utils/        Losses, uncertainty, and device helpers
 ```
 
-The core model is:
+Generated outputs, datasets, checkpoints, and archives are ignored by Git.
 
-```text
-CNN Encoder -> GRU Temporal Module -> Mean Head / Variance Head
-```
+## Installation
 
-ToyFireEnv uses robot/action/trajectory coordinates `[x, y]`. Risk, smoke, fire and obstacle maps use image indexing `[y, x]`.
-
-## Current Status
-
-Implemented stages:
-
-- Stage 1: risk prediction
-- Stage 2: uncertainty propagation and safe-risk maps
-- Stage 3: trajectory-level safe-risk constraint
-- Stage 4: closed-loop ToyFireEnv evaluation
-- Stage 4.1: closed-loop stabilization
-- Stage 4.2: ToyFireEnv dataset generation
-- Stage 4.3: formal toy training and prediction evaluation pipeline
-- Stage 5: baseline and ablation evaluation
-
-This project intentionally does not include PPO, SAC, CPO, reinforcement-learning training, MPC, or real FDS integration.
-
-## Environment Setup
-
-Use Python 3.10+ and PyTorch 2.x.
-
-[Open PRISM in Colab](https://colab.research.google.com/github/KKKKKK-y/prism/blob/main/PRISM_Colab.ipynb)
-
-For a formal Colab T4 run, use:
-
-```text
-FORMAL_TRAIN_EPISODES = 300
-FORMAL_VAL_EPISODES = 60
-FORMAL_TEST_EPISODES = 60
-FORMAL_EPOCHS = 50
-FORMAL_EVAL_EPISODES = 100
-```
-
-If VRAM or time is tight, use:
-
-```text
-FORMAL_TRAIN_EPISODES = 150
-FORMAL_VAL_EPISODES = 30
-FORMAL_TEST_EPISODES = 30
-FORMAL_EPOCHS = 30
-FORMAL_EVAL_EPISODES = 50
-```
+Use Python 3.10. For the RTX 5070 Ti / CUDA 12.8 environment used in development:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -U pip
+conda create -n prism python=3.10 -y
+conda activate prism
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+pip install -r requirements-no-torch.txt
 pip install -e .
 ```
 
-On macOS, the code automatically uses MPS when available. On Ubuntu with an RTX GPU, it automatically uses CUDA when available.
+If your GPU does not use CUDA 12.8, install the appropriate official PyTorch build for your platform first, then install `requirements-no-torch.txt`.
 
-## Quick Smoke Test
-
-MacBook or CPU debug flow:
+## Smoke Tests
 
 ```bash
-python scripts/check_project_ready.py
 python scripts/test_env.py
 python scripts/test_shapes.py --config configs/smoke.yaml
-python scripts/test_uncertainty.py --config configs/smoke.yaml --checkpoint outputs/checkpoints/best.pt
 python scripts/test_planner.py --config configs/smoke.yaml
-python scripts/train.py --config configs/smoke.yaml --debug
 ```
 
-Missing checkpoints in uncertainty/visualization scripts are allowed; those scripts warn and continue with random model weights.
+## Reviewer Demo
 
-## Toy Dataset Generation
-
-Small local debug dataset:
+The reviewer demo regenerates a tiny toy dataset, trains for 3 epochs by default, runs prediction and closed-loop checks, then runs a small PRISM-Fusion planner demo. It does not depend on existing datasets or checkpoints.
 
 ```bash
-python scripts/generate_toy_dataset.py --config configs/toy_train.yaml --train_episodes 5 --val_episodes 2 --test_episodes 2
-python scripts/test_toy_dataset.py --npz outputs/datasets/toy_fire_train.npz
+python scripts/run_reviewer_demo.py --config configs/reviewer_demo.yaml
 ```
 
-Formal Ubuntu dataset:
+For an even faster local check:
 
 ```bash
-python scripts/generate_toy_dataset.py --config configs/toy_train.yaml --train_episodes 300 --val_episodes 60 --test_episodes 60
+python scripts/run_reviewer_demo.py --config configs/reviewer_demo.yaml --epochs 1
 ```
 
-Generated `.npz` files are written to `outputs/datasets/` and are intentionally ignored by Git.
-
-## Formal Training on Ubuntu
-
-Train the Stage 4.3 ToyFireEnv predictor:
-
-```bash
-python scripts/train.py --config configs/toy_train.yaml
-```
-
-Resume interrupted training from the latest checkpoint:
-
-```bash
-python scripts/train.py \
-  --config configs/toy_train.yaml \
-  --resume outputs/checkpoints_toy/last.pt
-```
-
-Run the formal Stage 4.3 pipeline in debug mode:
-
-```bash
-python scripts/run_stage4_3_pipeline.py --config configs/toy_train.yaml --debug
-```
-
-The best validation checkpoint is saved to:
+Summary output:
 
 ```text
-outputs/checkpoints_toy/best.pt
+outputs/results/reviewer_demo_summary.txt
 ```
 
-Training logs are saved to:
+## Full Reproduction
+
+The Level-A reproduction regenerates the dataset, trains a fresh checkpoint, evaluates prediction quality, runs closed-loop evaluation, and runs the final PRISM-Fusion comparison.
+
+```bash
+python scripts/run_full_reproduction.py --config configs/reproduction_level_a.yaml
+```
+
+Expected outputs:
 
 ```text
-outputs/results/stage4_toy_training_log.csv
+outputs/results/full_reproduction_summary.txt
+outputs/results/full_reproduction_main_table.csv
+outputs/visualizations/full_reproduction_main_comparison.png
 ```
 
-The formal run summary is saved to:
+## Paper-Ready Tables And Figures
+
+After Stage-5 result CSVs are available locally, build Stage-6 reviewer tables, figures, summary, and the protected result zip:
+
+```bash
+python scripts/run_stage6_finalize_experiments.py
+```
+
+The package is written to:
 
 ```text
-outputs/results/formal_run_summary.txt
+outputs/prism_stage6_paper_ready_results.zip
 ```
 
-Package checkpoints, results, visualizations and key config files:
+The packager excludes checkpoints, generated datasets, NumPy arrays, and nested zip archives.
 
-```bash
-python scripts/package_results.py --output outputs/prism_formal_results.zip
+## Expected Trend
+
+In the hard dynamic fire benchmark, the Current-Risk Planner achieved approximately success `0.78` and collision `0.17`. PRISM-Fusion achieved approximately success `0.85` and collision `0.13`.
+
+The final PRISM planner uses current-risk prior and uncertainty-aware predictive safe-risk refinement. Compared with the current-risk-only baseline, alpha-fusion improves success rate and reduces collision rate in hard dynamic fire scenarios.
+
+## Artifact Policy
+
+The repository does not include:
+
+- Generated `outputs/`
+- Trained checkpoints (`.pt`, `.pth`, `.ckpt`)
+- Generated datasets or NumPy arrays (`.npz`, `.npy`)
+- Result archives (`.zip`)
+
+These artifacts are regenerated locally by the provided scripts and remain ignored by Git.
+
+## Citation
+
+```bibtex
+@article{xiao2026prism,
+  title={PRISM: Predictive Risk-Informed Safe Motion Planning for Dynamic Fire Environments},
+  author={Xiao, Kaiyan and Cai, Can},
+  journal={Under review},
+  year={2026}
+}
 ```
-
-Plot the training curve:
-
-```bash
-python scripts/plot_training_curve.py --csv outputs/results/stage4_toy_training_log.csv --output outputs/visualizations/stage4_toy_training_curve.png
-```
-
-## Prediction Evaluation
-
-Evaluate all prediction horizons `t+1` through `t+5`:
-
-```bash
-python scripts/evaluate_prediction_on_toy.py --config configs/toy_train.yaml --checkpoint outputs/checkpoints_toy/best.pt
-```
-
-Plot horizon-level MAE/RMSE:
-
-```bash
-python scripts/plot_prediction_metrics.py --csv outputs/results/stage4_toy_prediction_metrics.csv --output outputs/visualizations/stage4_toy_prediction_metrics.png
-```
-
-Visualize target, predicted mean, and absolute error for every horizon:
-
-```bash
-python scripts/visualize_prediction.py --config configs/toy_train.yaml --checkpoint outputs/checkpoints_toy/best.pt --output outputs/visualizations/stage4_toy_prediction_horizons.png --all_horizons
-```
-
-## Closed-Loop Evaluation
-
-Single closed-loop rollout:
-
-```bash
-python scripts/run_closed_loop.py --config configs/toy_train.yaml --checkpoint outputs/checkpoints_toy/best.pt
-```
-
-Multi-episode closed-loop evaluation:
-
-```bash
-python scripts/evaluate_closed_loop.py --config configs/toy_train.yaml --checkpoint outputs/checkpoints_toy/best.pt --episodes 100
-```
-
-Optional parameter sweep:
-
-```bash
-python scripts/sweep_stage4_params.py --config configs/toy_train.yaml --checkpoint outputs/checkpoints_toy/best.pt --episodes 10
-```
-
-## Stage 5: Baseline and Ablation Evaluation
-
-Stage 5 compares PRISM against planner-risk baselines under the same ToyFireEnv closed-loop evaluation loop:
-
-- `goal_greedy`: moves toward the goal with zero planner risk.
-- `current_risk`: repeats the current observed risk map over the planning horizon.
-- `mean_risk`: uses predicted mean risk only.
-- `prism_no_propagation`: uses MC Dropout uncertainty without temporal propagation.
-- `prism_full`: uses full PRISM uncertainty propagation.
-
-Evaluate all methods:
-
-```bash
-python scripts/evaluate_baselines.py \
-  --config configs/toy_train.yaml \
-  --checkpoint outputs/checkpoints_toy/best.pt \
-  --episodes 50 \
-  --methods goal_greedy current_risk mean_risk prism_no_propagation prism_full
-```
-
-Plot the Stage 5 comparison:
-
-```bash
-python scripts/plot_baseline_results.py \
-  --csv outputs/results/stage5_baseline_results.csv \
-  --output outputs/visualizations/stage5_baseline_comparison.png
-```
-
-Run the full Stage 5 pipeline and package results:
-
-```bash
-python scripts/run_stage5_pipeline.py \
-  --config configs/toy_train.yaml \
-  --checkpoint outputs/checkpoints_toy/best.pt \
-  --episodes 50
-```
-
-In Colab, first finish the formal run or otherwise make sure `outputs/checkpoints_toy/best.pt` exists. Then set:
-
-```text
-RUN_STAGE5_BASELINES = True
-```
-
-The Stage 5 notebook cell will run the pipeline, display `stage5_baseline_results.csv`, and download `outputs/prism_stage5_results.zip` when available.
-
-Stage 5 outputs:
-
-```text
-outputs/results/stage5_baseline_results.csv
-outputs/results/stage5_baseline_episode_results.csv
-outputs/visualizations/stage5_baseline_comparison.png
-outputs/prism_stage5_results.zip
-```
-
-## Project Structure
-
-```text
-prism/
-├── configs/
-│   ├── smoke.yaml
-│   ├── toy_train.yaml
-│   └── prism.yaml
-├── datasets/
-│   ├── __init__.py
-│   └── dataset.py
-├── envs/
-│   ├── __init__.py
-│   └── toy_fire_env.py
-├── models/
-│   ├── __init__.py
-│   └── model.py
-├── planners/
-│   ├── __init__.py
-│   ├── baseline_planners.py
-│   ├── trajectory_sampler.py
-│   └── safe_risk_planner.py
-├── trainers/
-│   ├── __init__.py
-│   └── trainer.py
-├── utils/
-│   ├── __init__.py
-│   ├── device.py
-│   ├── losses.py
-│   ├── metrics.py
-│   ├── seed.py
-│   └── uncertainty.py
-├── scripts/
-│   ├── check_project_ready.py
-│   ├── test_env.py
-│   ├── test_shapes.py
-│   ├── test_uncertainty.py
-│   ├── test_planner.py
-│   ├── generate_toy_dataset.py
-│   ├── test_toy_dataset.py
-│   ├── train.py
-│   ├── evaluate_prediction_on_toy.py
-│   ├── evaluate_closed_loop.py
-│   ├── evaluate_baselines.py
-│   ├── visualize_prediction.py
-│   ├── visualize_uncertainty.py
-│   ├── visualize_planner.py
-│   ├── visualize_toy_env.py
-│   ├── run_closed_loop.py
-│   ├── run_stage4_3_pipeline.py
-│   ├── run_stage5_pipeline.py
-│   ├── plot_training_curve.py
-│   ├── plot_prediction_metrics.py
-│   └── plot_baseline_results.py
-├── outputs/
-├── README.md
-├── requirements.txt
-├── pyproject.toml
-├── .gitignore
-└── config.py
-```
-
-## Notes for RTX 5070 Ti
-
-- Install a CUDA-enabled PyTorch build that matches the Ubuntu NVIDIA driver.
-- Keep generated datasets, checkpoints and TensorBoard logs under `outputs/`; they are ignored by Git.
-- Use `configs/toy_train.yaml` for formal supervised training.
-- Start with the small dataset generation command before launching the 300/60/60 episode dataset build.
-- If CUDA is available, `select_device()` chooses `cuda`; otherwise it falls back to `mps` or `cpu`.
